@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>匿名留言板</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        .section-title {
+            text-align: center;
+            font-size: 1.8em;
+            color: #2c3e50;
+            margin: 20px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 10px;
+        }
+        #pendingPostsContainer,
+        #approvedPostsContainer {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .post-card {
+            background: rgba(255, 255, 255, 0.95);
+            border: none;
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .post-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+        }
+        .post-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid rgba(238, 238, 238, 0.5);
+        }
+        .post-header h3 {
+            color: #2c3e50;
+            font-size: 1.3em;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .post-content {
+            color: #34495e;
+            margin-bottom: 20px;
+            font-size: 1.15em;
+            line-height: 1.9;
+            letter-spacing: 0.3px;
+            flex-grow: 1;
+        }
+        .post-time {
+            color: #7f8c8d;
+            font-size: 0.95em;
+            font-weight: 500;
+            padding: 6px 12px;
+            background: rgba(236, 240, 241, 0.6);
+            border-radius: 20px;
+        }
+        .post-media {
+            width: 100%;
+            max-width: 600px;
+            margin: 15px auto;
+            display: block;
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        .post-media:hover {
+            transform: scale(1.02);
+        }
+        video.post-media {
+            background-color: #000;
+        }
+        .post-actions {
+            margin-top: auto;
+            text-align: right;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .download-btn,
+        .approve-btn,
+        .delete-btn {
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            color: white;
+        }
+        .download-btn {
+            background: linear-gradient(45deg, #605feb, #8c7ae6);
+            box-shadow: 0 4px 15px rgba(96, 95, 235, 0.3);
+        }
+        .approve-btn {
+            background: linear-gradient(45deg, #27ae60, #2ecc71);
+            box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+        }
+        .delete-btn {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+        }
+        .download-btn:hover,
+        .approve-btn:hover,
+        .delete-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+        .loading, .error-message, .no-posts {
+            text-align: center;
+            padding: 30px;
+            font-size: 1.2em;
+            color: #7f8c8d;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            grid-column: 1 / -1;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            
+            #pendingPostsContainer,
+            #approvedPostsContainer {
+                grid-template-columns: 1fr;
+            }
+            .post-card {
+                padding: 20px;
+            }
+            .post-header h3 {
+                font-size: 1.1em;
+            }
+            .post-time {
+                font-size: 0.85em;
+            }
+            .post-content {
+                font-size: 1em;
+            }
+        }
+        .ai-check-btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            color: white;
+        }
+
+        .ai-check-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .ai-result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.9em;
+        }
+
+        .ai-safe {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+
+        .ai-danger {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+
+        .batch-actions {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .progress-container {
+            width: 100%;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin: 10px 0;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 20px;
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            position: relative;
+        }
+
+        .progress-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 12px;
+            line-height: 20px;
+        }
+
+        .batch-btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        .batch-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .processing-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+        }
+
+        .processing-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .status-text {
+            margin: 10px 0;
+            text-align: center;
+            color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <h2 class="section-title">待審核留言</h2>
+    <div id="pendingPostsContainer"></div>
+    
+    <h2 class="section-title">已批准留言</h2>
+    <div id="approvedPostsContainer"></div>
+    <div class="batch-actions">
+
+        <button class="batch-btn" onclick="batchPublishToIG()">批量發布到 IG（5張一組）</button>
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-text">0%</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="processing-overlay">
+        <div class="processing-card">
+            <h3 class="status-text">正在處理中...</h3>
+            <div class="progress-container" style="display: block;">
+                <div class="progress-bar">
+                    <div class="progress-text">0%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+<script src="後台.js"></script>
+<script src="publish.js"></script>
+</body>
+</html>
